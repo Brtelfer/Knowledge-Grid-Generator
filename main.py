@@ -239,7 +239,7 @@ def index():
         df["I don't know"] = "○"
 
         # Save CSV in session
-        session['csv_data'] = df.to_csv(index=False)
+        session['csv_data'] = df.to_csv(index=False, encoding='utf-8-sig')
 
     return render_template(
         "index.html",
