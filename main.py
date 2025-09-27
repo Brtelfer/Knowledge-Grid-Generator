@@ -214,13 +214,15 @@ def index():
         # Build dictionary
         Word_Freq = {word: {'Similar': [], 'Dissimilar': []}}
 
+        SMALL_POOL = random.sample(CANDIDATE_POOL, 5000)
+        
         # Generate similar words
-        g = semantically_similar_generator(word, CANDIDATE_POOL, frequency=frequency, min_len=min_len, max_len=max_len)
+        g = semantically_similar_generator(word, SMALL_POOL, frequency=frequency, min_len=min_len, max_len=max_len)
         for _ in range(word_num):
             Word_Freq[word]['Similar'].append(next(g))
 
         # Generate dissimilar words
-        h = semantically_dissimilar_generator(word, CANDIDATE_POOL, frequency=frequency, min_len=min_len, max_len=max_len)
+        h = semantically_dissimilar_generator(word, SMALL_POOL, frequency=frequency, min_len=min_len, max_len=max_len)
         for _ in range(word_num):
             Word_Freq[word]['Dissimilar'].append(next(h))
 
