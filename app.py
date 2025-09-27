@@ -1,3 +1,11 @@
+import nltk
+
+try:
+    nltk.data.find("corpora/wordnet")
+except LookupError:
+    nltk.download("wordnet", quiet=True)
+    nltk.download("omw-1.4", quiet=True)  # optional, for multilingual/lemma support
+
 import sys
 import os
 
