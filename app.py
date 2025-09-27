@@ -1,10 +1,14 @@
-import sys, os
+import sys
+import os
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from flask import Flask, render_template, request
-import pandas as pd, random, semgens
+import pandas as pd
+import random
+import semgens
 from semgens import semantically_similar_generator, semantically_dissimilar_generator
+
 
 app = Flask(__name__)
 
