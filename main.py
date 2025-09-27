@@ -1,4 +1,4 @@
-import nltk
+import io
 
 try:
     nltk.data.find("corpora/wordnet")
@@ -11,7 +11,7 @@ import os
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, session, send_file
 import pandas as pd
 import random
 
@@ -92,104 +92,89 @@ def frequency_filter(word: str, bucket: str) -> bool:
     lo, hi = FREQ_BUCKETS.get(bucket, FREQ_BUCKETS["any"])
     return lo <= z < hi
 
-# WordNet helpers
-def synsets_for_word(word: str):
-    return wn.synsets(word)
+from nltk.corpus import wordnet as wn
+from functools import lru_cache
+import random
 
-def max_path_similarity_between(word1: str, word2: str) -> Optional[float]:
-    """Return the maximum path_similarity (0..1) between any synset pair, or None."""
+# -------------------------------
+# Caching functions
+# -------------------------------
+
+# Cache synsets for each word
+@lru_cache(maxsize=5000)
+def synsets_for_word(word):
+    return tuple(wn.synsets(word))
+
+# Cache path similarity for each pair of words
+similarity_cache = {}
+
+def max_path_similarity_between(word1, word2):
+    key = tuple(sorted([word1, word2]))
+    if key in similarity_cache:
+        return similarity_cache[key]
+
     s1 = synsets_for_word(word1)
     s2 = synsets_for_word(word2)
-    best = None
+
+    max_sim = 0
     for a in s1:
         for b in s2:
-            try:
-                sim = a.path_similarity(b)
-            except Exception:
-                sim = None
-            if sim is not None:
-                if best is None or sim > best:
-                    best = sim
-    return best
+            sim = a.path_similarity(b)
+            if sim is not None and sim > max_sim:
+                max_sim = sim
 
-def antonyms_for_word(word: str) -> List[str]:
-    ants = set()
-    for syn in wn.synsets(word):
-        for lemma in syn.lemmas():
-            for ant in lemma.antonyms():
-                ants.add(ant.name().replace('_',' '))
-    return sorted(ants)
+    similarity_cache[key] = max_sim
+    return max_sim
 
-# Ranking collectors
-def collect_similar_candidates(seed: str, pool: Iterable[str], max_candidates: int = 1000) -> List[str]:
-    scores: List[Tuple[str, float]] = []
+# -------------------------------
+# Collect similar candidates
+# -------------------------------
+
+def collect_similar_candidates(seed_word, pool, max_candidates=None):
+    scored = []
     for w in pool:
-        if w.lower() == seed.lower(): 
+        if w == seed_word:
             continue
-        sim = max_path_similarity_between(seed, w)
-        if sim is None:
-            # weak proxy: character overlap scaled down
-            shared = len(set(seed.lower()) & set(w.lower()))
-            sim = (shared / max(1, len(set(seed.lower()) | set(w.lower())))) * 0.25
-        scores.append((w, sim))
-    scores.sort(key=lambda x: x[1], reverse=True)
-    return [w for w, _ in scores[:max_candidates]]
+        sim = max_path_similarity_between(seed_word, w)
+        scored.append((w, sim or 0))
+    scored.sort(key=lambda x: x[1], reverse=True)
+    if max_candidates:
+        scored = scored[:max_candidates]
+    for w, _ in scored:
+        yield w
 
-def collect_dissimilar_candidates(seed: str, pool: Iterable[str], max_candidates: int = 1000) -> List[str]:
-    scores: List[Tuple[str, float]] = []
+# -------------------------------
+# Collect dissimilar candidates
+# -------------------------------
+
+def collect_dissimilar_candidates(seed_word, pool, max_candidates=None):
+    scored = []
     for w in pool:
-        if w.lower() == seed.lower():
+        if w == seed_word:
             continue
-        sim = max_path_similarity_between(seed, w)
-        if sim is None:
-            shared = len(set(seed.lower()) & set(w.lower()))
-            sim = (shared / max(1, len(set(seed.lower()) | set(w.lower())))) * 0.25
-        scores.append((w, sim))
-    scores.sort(key=lambda x: x[1])  # ascending => least similar first
-    return [w for w, _ in scores[:max_candidates]]
+        sim = max_path_similarity_between(seed_word, w)
+        scored.append((w, sim or 0))
+    scored.sort(key=lambda x: x[1])  # low similarity first
+    if max_candidates:
+        scored = scored[:max_candidates]
+    for w, _ in scored:
+        yield w
 
+# -------------------------------
 # Generators
-def semantically_similar_generator(seed_word: str, frequency: str = 'medium', min_len: Optional[int] = None, max_len: Optional[int] = None) -> Generator[str, None, None]:
-    """
-    Yields words semantically similar to seed_word.
-    frequency: 'high'|'medium'|'low'|'any' (best-effort; ignored if wordfreq isn't available)
-    min_len, max_len: optional integer length bounds (characters)
-    """
-    # filter pool
-    def length_ok(w: str) -> bool:
-        if min_len is not None and len(w) < min_len: return False
-        if max_len is not None and len(w) > max_len: return False
-        return True
+# -------------------------------
 
-    pool = [w for w in CANDIDATE_POOL if frequency_filter(w, frequency) and length_ok(w)]
-    ranked = collect_similar_candidates(seed_word, pool, max_candidates=len(pool))
-    for w in ranked:
-        yield w
+def semantically_similar_generator(seed_word, pool, frequency='high', min_len=3, max_len=7):
+    g = collect_similar_candidates(seed_word, pool)
+    for word in g:
+        if min_len <= len(word) <= max_len:
+            yield word
 
-def semantically_dissimilar_generator(seed_word: str, frequency: str = 'medium', min_len: Optional[int] = None, max_len: Optional[int] = None) -> Generator[str, None, None]:
-    """
-    Yields words semantically dissimilar to seed_word.
-    Prefers explicit antonyms (if any), then least-similar words from pool.
-    """
-    def length_ok(w: str) -> bool:
-        if min_len is not None and len(w) < min_len: return False
-        if max_len is not None and len(w) > max_len: return False
-        return True
-
-    # yield antonyms first
-    for a in antonyms_for_word(seed_word):
-        if frequency_filter(a, frequency) and length_ok(a):
-            yield a
-
-    pool = [w for w in CANDIDATE_POOL if frequency_filter(w, frequency) and length_ok(w)]
-    ranked = collect_dissimilar_candidates(seed_word, pool, max_candidates=len(pool))
-    yielded = set()
-    for a in antonyms_for_word(seed_word):
-        yielded.add(a.lower())
-    for w in ranked:
-        if w.lower() in yielded: 
-            continue
-        yield w
+def semantically_dissimilar_generator(seed_word, pool, frequency='high', min_len=3, max_len=7):
+    g = collect_dissimilar_candidates(seed_word, pool)
+    for word in g:
+        if min_len <= len(word) <= max_len:
+            yield word
 
 # Quick demo function for convenience
 def demo(seed: str, frequency='medium', min_len=None, max_len=None, n=12):
