@@ -37,13 +37,17 @@
   </div>
   <button type="submit" class="btn btn-primary">Generate</button>
 </form>
+  
+{% if topic %}
+<h3>Topic: {{ topic }}</h3>
+{% endif %}
 
 {% if table %}
 <hr>
 <h2>Generated Words</h2>
 {{ table | safe }}
 
-<form action="/download_csv" method="get" class="mt-3">
+<form action="{{ url_for('download_csv') }}" method="get" class="mt-3">
   <button type="submit" class="btn btn-success">Download CSV</button>
 </form>
 {% endif %}
