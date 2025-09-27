@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request
 import pandas as pd
 import random
+import semgens
 from semgens import semantically_similar_generator, semantically_dissimilar_generator
 
 app = Flask(__name__)
