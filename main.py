@@ -1,4 +1,5 @@
 import io
+import nltk
 
 try:
     nltk.data.find("corpora/wordnet")
