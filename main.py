@@ -234,13 +234,19 @@ def index():
         random.shuffle(words_with_labels)
 
         df = pd.DataFrame(words_with_labels, columns=["Word", "Key"])
-        df["Related to Topic"] = "○"
-        df["Not Related to Topic"] = "○"
-        df["I don't know"] = "○"
+        df["Related to Topic"] = " "
+        df["Not Related to Topic"] = " "
+        df["I don't know"] = " "
 
         # Save CSV in session
         session['csv_data'] = df.to_csv(index=False, encoding='utf-8-sig')
+        session['topic'] = topic
 
+    return render_template(
+        "index.html",
+        table=df.to_html(classes="table table-striped", index=False, header=True) if df is not None else None,
+        topic=topic
+    )
     return render_template(
         "index.html",
         table=df.to_html(classes="table table-striped", index=False) if df is not None else None
@@ -248,17 +254,18 @@ def index():
 
 @app.route("/download_csv")
 def download_csv():
-    if 'csv_data' not in session:
+    if 'csv_data' not in session or 'topic' not in session:
         return "No data to download", 400
 
-    csv_bytes = io.BytesIO(session['csv_data'].encode())
+    csv_bytes = io.BytesIO(session['csv_data'].encode('utf-8-sig'))
     csv_bytes.seek(0)
 
+    filename = f"{session['topic']}_words.csv"
     return send_file(
         csv_bytes,
         mimetype='text/csv',
         as_attachment=True,
-        download_name='words.csv'
+        download_name=filename
     )
 
 if __name__ == "__main__":
