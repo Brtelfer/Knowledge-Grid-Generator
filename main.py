@@ -203,17 +203,18 @@ app.secret_key = "replace_this_with_a_random_string"
 @app.route("/", methods=["GET", "POST"])
 def index():
     df = None
+    topic = None  # <--- define topic
+
     if request.method == "POST":
         # Collect form inputs
         word = request.form.get("word")
+        topic = word  # or whatever you want to use as topic
         frequency = request.form.get("frequency", "high")
         min_len = int(request.form.get("min_len", 3))
         max_len = int(request.form.get("max_len", 7))
         word_num = int(request.form.get("word_num", 5))
 
-        # Build dictionary
         Word_Freq = {word: {'Similar': [], 'Dissimilar': []}}
-
         SMALL_POOL = random.sample(CANDIDATE_POOL, 10000)
         
         # Generate similar words
@@ -246,10 +247,6 @@ def index():
         "index.html",
         table=df.to_html(classes="table table-striped", index=False, header=True) if df is not None else None,
         topic=topic
-    )
-    return render_template(
-        "index.html",
-        table=df.to_html(classes="table table-striped", index=False) if df is not None else None
     )
 
 @app.route("/download_csv")
