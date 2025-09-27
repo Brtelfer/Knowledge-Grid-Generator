@@ -211,8 +211,8 @@ def demo(seed: str, frequency='medium', min_len=None, max_len=None, n=12):
     print("Similar (top):", sim)
     print("Dissimilar (top):", dis)
 
-
 app = Flask(__name__)
+app.secret_key = "replace_this_with_a_random_string"
 
 @app.route("/", methods=["GET", "POST"])
 def index():
@@ -250,8 +250,28 @@ def index():
         df["Not Related to Topic"] = "○"
         df["I don't know"] = "○"
 
-    return render_template("index.html", table=df.to_html(classes="table table-striped", index=False) if df is not None else None)
+        # Save CSV in session
+        session['csv_data'] = df.to_csv(index=False)
 
+    return render_template(
+        "index.html",
+        table=df.to_html(classes="table table-striped", index=False) if df is not None else None
+    )
+
+@app.route("/download_csv")
+def download_csv():
+    if 'csv_data' not in session:
+        return "No data to download", 400
+
+    csv_bytes = io.BytesIO(session['csv_data'].encode())
+    csv_bytes.seek(0)
+
+    return send_file(
+        csv_bytes,
+        mimetype='text/csv',
+        as_attachment=True,
+        download_name='words.csv'
+    )
 
 if __name__ == "__main__":
     app.run(debug=True)
