@@ -215,7 +215,7 @@ def index():
         word_num = int(request.form.get("word_num", 5))
 
         Word_Freq = {word: {'Similar': [], 'Dissimilar': []}}
-        SMALL_POOL = random.sample(CANDIDATE_POOL, 10000)
+        SMALL_POOL = random.sample(CANDIDATE_POOL, 20000)
         
         # Generate similar words
         g = semantically_similar_generator(word, SMALL_POOL, frequency=frequency, min_len=min_len, max_len=max_len)
