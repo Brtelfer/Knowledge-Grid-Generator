@@ -7,6 +7,26 @@ except LookupError:
     nltk.download("wordnet", quiet=True)
     nltk.download("omw-1.4", quiet=True)  # optional, for multilingual/lemma support
 
+# Download required NLTK data for text processing
+try:
+    nltk.data.find('tokenizers/punkt')
+except LookupError:
+    nltk.download('punkt', quiet=True)
+
+try:
+    nltk.data.find('corpora/stopwords')
+except LookupError:
+    nltk.download('stopwords', quiet=True)
+
+# Try to download punkt_tab for improved tokenization
+try:
+    nltk.data.find('tokenizers/punkt_tab')
+except LookupError:
+    try:
+        nltk.download('punkt_tab', quiet=True)
+    except:
+        print("punkt_tab not available, using standard tokenizer")
+
 import sys
 import os
 
@@ -47,17 +67,9 @@ except Exception:
 try:
     import nltk
     from nltk.corpus import wordnet as wn
-    from nltk.tokenize import word_tokenize
+    # Use simple tokenization as fallback
+    from nltk.tokenize import RegexpTokenizer
     from nltk.corpus import stopwords
-    # Download required NLTK data
-    try:
-        nltk.data.find('tokenizers/punkt')
-    except LookupError:
-        nltk.download('punkt', quiet=True)
-    try:
-        nltk.data.find('corpora/stopwords')
-    except LookupError:
-        nltk.download('stopwords', quiet=True)
 except Exception as e:
     raise ImportError("nltk and wordnet are required. Install nltk and download wordnet (nltk.download('wordnet')).") from e
 
@@ -192,17 +204,28 @@ def semantically_dissimilar_generator(seed_word, pool, frequency='high', min_len
 # Text processing functions
 # -------------------------------
 
+def simple_tokenize(text):
+    """Simple tokenization that doesn't rely on complex NLTK tokenizers"""
+    # Use regex to split on non-alphanumeric characters
+    tokenizer = RegexpTokenizer(r'\w+')
+    return tokenizer.tokenize(text.lower())
+
 def extract_vocabulary_from_texts(texts, topic, min_word_length=3, max_words=50):
     """Extract relevant vocabulary from input texts related to the topic."""
-    stop_words = set(stopwords.words('english'))
+    try:
+        stop_words = set(stopwords.words('english'))
+    except:
+        # Fallback stopwords if NLTK stopwords not available
+        stop_words = {'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by'}
+    
     all_words = []
     
     for text in texts:
         if not text.strip():
             continue
             
-        # Tokenize and clean text
-        words = word_tokenize(text.lower())
+        # Use simple tokenization
+        words = simple_tokenize(text)
         words = [word for word in words if word.isalpha() and len(word) >= min_word_length]
         words = [word for word in words if word not in stop_words]
         
@@ -219,8 +242,12 @@ def extract_vocabulary_from_texts(texts, topic, min_word_length=3, max_words=50)
             continue
             
         # Check semantic similarity with topic
-        similarity = max_path_similarity_between(topic.lower(), word)
-        if similarity > 0.1:  # Threshold for semantic relevance
+        try:
+            similarity = max_path_similarity_between(topic.lower(), word)
+            if similarity > 0.1:  # Threshold for semantic relevance
+                relevant_words.append((word, freq))
+        except:
+            # If similarity check fails, include the word anyway
             relevant_words.append((word, freq))
     
     # Return top relevant words by frequency
