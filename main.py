@@ -244,7 +244,7 @@ def extract_vocabulary_from_texts(texts, topic, min_word_length=3, max_words=50)
         # Check semantic similarity with topic
         try:
             similarity = max_path_similarity_between(topic.lower(), word)
-            if similarity > 0.9:  # Threshold for semantic relevance
+            if similarity > 0.7:  # Threshold for semantic relevance
                 relevant_words.append((word, freq))
         except:
             # If similarity check fails, include the word anyway
