@@ -280,7 +280,7 @@ def generate_knowledge_grid(topic, texts, total_words=20, frequency='high', min_
     related_not_in_texts_count = total_words // 4  # 25% 
     dissimilar_count = total_words // 2  # 50%
     
-    SMALL_POOL = random.sample(CANDIDATE_POOL, 20000)
+    SMALL_POOL = random.sample(CANDIDATE_POOL, 25000)
     
     # 1. Words from texts (25%) - with fallback
     available_text_words = min(words_from_texts_count, len(texts_vocabulary))
