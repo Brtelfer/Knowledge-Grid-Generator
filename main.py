@@ -270,46 +270,85 @@ def generate_related_words_not_in_texts(topic, texts_vocab, pool, num_words=25, 
     return generated_words
 
 def generate_knowledge_grid(topic, texts, total_words=20, frequency='high', min_len=3, max_len=7):
-    """Generate the knowledge grid with the specified proportions."""
+    """Generate the knowledge grid with guaranteed proportions."""
     
     # Extract vocabulary from texts
     texts_vocabulary = extract_vocabulary_from_texts(texts, topic)
     
-    # Calculate word counts based on proportions
-    total_related = total_words // 2
-    words_from_texts_count = total_related // 2  # 25% of total
-    related_not_in_texts_count = total_related // 2  # 25% of total
-    dissimilar_count = total_words // 2  # 50% of total
+    # Calculate exact word counts
+    words_from_texts_count = total_words // 4  # 25%
+    related_not_in_texts_count = total_words // 4  # 25% 
+    dissimilar_count = total_words // 2  # 50%
     
     SMALL_POOL = random.sample(CANDIDATE_POOL, 20000)
     
-    # 1. Words from texts (25%)
-    words_from_texts = random.sample(texts_vocabulary, min(words_from_texts_count, len(texts_vocabulary)))
+    # 1. Words from texts (25%) - with fallback
+    available_text_words = min(words_from_texts_count, len(texts_vocabulary))
+    words_from_texts = random.sample(texts_vocabulary, available_text_words) if available_text_words > 0 else []
     
-    # 2. Related words not in texts (25%)
-    related_not_in_texts = generate_related_words_not_in_texts(
-        topic, texts_vocabulary, SMALL_POOL, 
-        num_words=related_not_in_texts_count,
-        frequency=frequency, min_len=min_len, max_len=max_len
-    )
+    # If we don't have enough text words, adjust other categories
+    text_words_shortfall = words_from_texts_count - available_text_words
+    if text_words_shortfall > 0:
+        # Add the shortfall to related-not-in-texts
+        related_not_in_texts_count += text_words_shortfall
     
-    # 3. Dissimilar words (50%)
+    # 2. Related words not in texts (25%) - with guaranteed generation
+    related_not_in_texts = []
+    similar_gen = semantically_similar_generator(topic, SMALL_POOL, frequency=frequency, min_len=min_len, max_len=max_len)
+    text_vocab_set = set(texts_vocabulary)
+    
+    for word in similar_gen:
+        if word not in text_vocab_set and word != topic:
+            related_not_in_texts.append(word)
+            if len(related_not_in_texts) >= related_not_in_texts_count:
+                break
+    
+    # If we don't have enough related words, adjust dissimilar count
+    related_shortfall = related_not_in_texts_count - len(related_not_in_texts)
+    if related_shortfall > 0:
+        dissimilar_count += related_shortfall
+    
+    # 3. Dissimilar words (50%) - generate exactly what we need
     dissimilar_words = []
     dis_gen = semantically_dissimilar_generator(topic, SMALL_POOL, frequency=frequency, min_len=min_len, max_len=max_len)
-    for _ in range(dissimilar_count):
-        try:
-            word = next(dis_gen)
-            if word not in texts_vocabulary:
-                dissimilar_words.append(word)
-        except StopIteration:
-            break
+    
+    # Use a set to avoid duplicates from the generator
+    seen_words = set(words_from_texts + related_not_in_texts)
+    
+    for word in dis_gen:
+        if word not in seen_words and word != topic:
+            dissimilar_words.append(word)
+            seen_words.add(word)
+            if len(dissimilar_words) >= dissimilar_count:
+                break
+    
+    # Final validation and padding if necessary
+    final_words_from_texts = words_from_texts
+    final_related_not_in_texts = related_not_in_texts
+    final_dissimilar = dissimilar_words
+    
+    # If we're still short, pad with extra dissimilar words
+    total_actual = len(final_words_from_texts) + len(final_related_not_in_texts) + len(final_dissimilar)
+    if total_actual < total_words:
+        extra_needed = total_words - total_actual
+        # Generate more dissimilar words to pad
+        for word in dis_gen:
+            if word not in seen_words and word != topic:
+                final_dissimilar.append(word)
+                seen_words.add(word)
+                if len(final_dissimilar) >= len(dissimilar_words) + extra_needed:
+                    break
     
     # Combine all words with labels
     words_with_labels = (
-        [(w, "From Texts") for w in words_from_texts] +
-        [(w, "Related Not in Texts") for w in related_not_in_texts] +
-        [(w, "Dissimilar") for w in dissimilar_words]
+        [(w, "From Texts") for w in final_words_from_texts] +
+        [(w, "Related Not in Texts") for w in final_related_not_in_texts] +
+        [(w, "Dissimilar") for w in final_dissimilar]
     )
+    
+    # Final check - truncate to exact total if we somehow got too many
+    if len(words_with_labels) > total_words:
+        words_with_labels = words_with_labels[:total_words]
     
     # Randomize order
     random.shuffle(words_with_labels)
