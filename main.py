@@ -15,8 +15,8 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from flask import Flask, render_template, request, session, send_file
 import pandas as pd
 import random
-
-
+import re
+from collections import Counter
 
 """
 Semantic word generators: similar + dissimilar.
@@ -47,6 +47,17 @@ except Exception:
 try:
     import nltk
     from nltk.corpus import wordnet as wn
+    from nltk.tokenize import word_tokenize
+    from nltk.corpus import stopwords
+    # Download required NLTK data
+    try:
+        nltk.data.find('tokenizers/punkt')
+    except LookupError:
+        nltk.download('punkt', quiet=True)
+    try:
+        nltk.data.find('corpora/stopwords')
+    except LookupError:
+        nltk.download('stopwords', quiet=True)
 except Exception as e:
     raise ImportError("nltk and wordnet are required. Install nltk and download wordnet (nltk.download('wordnet')).") from e
 
@@ -177,25 +188,106 @@ def semantically_dissimilar_generator(seed_word, pool, frequency='high', min_len
         if min_len <= len(word) <= max_len:
             yield word
 
-# Quick demo function for convenience
-def demo(seed: str, frequency='medium', min_len=None, max_len=None, n=12):
-    print(f"DEMO — seed={seed!r}, frequency={frequency}, min_len={min_len}, max_len={max_len}\n")
-    sim = []
-    dis = []
-    sim_gen = semantically_similar_generator(seed, frequency=frequency, min_len=min_len, max_len=max_len)
-    dis_gen = semantically_dissimilar_generator(seed, frequency=frequency, min_len=min_len, max_len=max_len)
-    for _ in range(n):
+# -------------------------------
+# Text processing functions
+# -------------------------------
+
+def extract_vocabulary_from_texts(texts, topic, min_word_length=3, max_words=50):
+    """Extract relevant vocabulary from input texts related to the topic."""
+    stop_words = set(stopwords.words('english'))
+    all_words = []
+    
+    for text in texts:
+        if not text.strip():
+            continue
+            
+        # Tokenize and clean text
+        words = word_tokenize(text.lower())
+        words = [word for word in words if word.isalpha() and len(word) >= min_word_length]
+        words = [word for word in words if word not in stop_words]
+        
+        all_words.extend(words)
+    
+    # Count word frequencies
+    word_freq = Counter(all_words)
+    
+    # Filter words that are semantically related to the topic
+    relevant_words = []
+    for word, freq in word_freq.most_common(max_words * 2):  # Get more candidates for filtering
+        if word == topic.lower():
+            relevant_words.append((word, freq))
+            continue
+            
+        # Check semantic similarity with topic
+        similarity = max_path_similarity_between(topic.lower(), word)
+        if similarity > 0.1:  # Threshold for semantic relevance
+            relevant_words.append((word, freq))
+    
+    # Return top relevant words by frequency
+    relevant_words.sort(key=lambda x: x[1], reverse=True)
+    return [word for word, freq in relevant_words[:max_words]]
+
+def generate_related_words_not_in_texts(topic, texts_vocab, pool, num_words=25, frequency='high', min_len=3, max_len=7):
+    """Generate words related to topic but not in the texts vocabulary."""
+    generated_words = []
+    text_vocab_set = set(texts_vocab)
+    
+    similar_gen = semantically_similar_generator(topic, pool, frequency=frequency, min_len=min_len, max_len=max_len)
+    
+    for word in similar_gen:
+        if word not in text_vocab_set and word != topic:
+            generated_words.append(word)
+            if len(generated_words) >= num_words:
+                break
+                
+    return generated_words
+
+def generate_knowledge_grid(topic, texts, total_words=20, frequency='high', min_len=3, max_len=7):
+    """Generate the knowledge grid with the specified proportions."""
+    
+    # Extract vocabulary from texts
+    texts_vocabulary = extract_vocabulary_from_texts(texts, topic)
+    
+    # Calculate word counts based on proportions
+    total_related = total_words // 2
+    words_from_texts_count = total_related // 2  # 25% of total
+    related_not_in_texts_count = total_related // 2  # 25% of total
+    dissimilar_count = total_words // 2  # 50% of total
+    
+    SMALL_POOL = random.sample(CANDIDATE_POOL, 20000)
+    
+    # 1. Words from texts (25%)
+    words_from_texts = random.sample(texts_vocabulary, min(words_from_texts_count, len(texts_vocabulary)))
+    
+    # 2. Related words not in texts (25%)
+    related_not_in_texts = generate_related_words_not_in_texts(
+        topic, texts_vocabulary, SMALL_POOL, 
+        num_words=related_not_in_texts_count,
+        frequency=frequency, min_len=min_len, max_len=max_len
+    )
+    
+    # 3. Dissimilar words (50%)
+    dissimilar_words = []
+    dis_gen = semantically_dissimilar_generator(topic, SMALL_POOL, frequency=frequency, min_len=min_len, max_len=max_len)
+    for _ in range(dissimilar_count):
         try:
-            sim.append(next(sim_gen))
+            word = next(dis_gen)
+            if word not in texts_vocabulary:
+                dissimilar_words.append(word)
         except StopIteration:
             break
-    for _ in range(n):
-        try:
-            dis.append(next(dis_gen))
-        except StopIteration:
-            break
-    print("Similar (top):", sim)
-    print("Dissimilar (top):", dis)
+    
+    # Combine all words with labels
+    words_with_labels = (
+        [(w, "From Texts") for w in words_from_texts] +
+        [(w, "Related Not in Texts") for w in related_not_in_texts] +
+        [(w, "Dissimilar") for w in dissimilar_words]
+    )
+    
+    # Randomize order
+    random.shuffle(words_with_labels)
+    
+    return words_with_labels
 
 app = Flask(__name__)
 app.secret_key = "replace_this_with_a_random_string"
@@ -203,38 +295,39 @@ app.secret_key = "replace_this_with_a_random_string"
 @app.route("/", methods=["GET", "POST"])
 def index():
     df = None
-    topic = None  # <--- define topic
+    topic = None
 
     if request.method == "POST":
         # Collect form inputs
-        word = request.form.get("word")
-        topic = word  # or whatever you want to use as topic
+        topic = request.form.get("topic")
+        text1 = request.form.get("text1", "")
+        text2 = request.form.get("text2", "")
+        text3 = request.form.get("text3", "")
+        
         frequency = request.form.get("frequency", "high")
         min_len = int(request.form.get("min_len", 3))
         max_len = int(request.form.get("max_len", 7))
-        word_num = int(request.form.get("word_num", 5))
-
-        Word_Freq = {word: {'Similar': [], 'Dissimilar': []}}
-        SMALL_POOL = random.sample(CANDIDATE_POOL, 20000)
+        word_num = int(request.form.get("word_num", 20))
         
-        # Generate similar words
-        g = semantically_similar_generator(word, SMALL_POOL, frequency=frequency, min_len=min_len, max_len=max_len)
-        for _ in range(word_num):
-            Word_Freq[word]['Similar'].append(next(g))
-
-        # Generate dissimilar words
-        h = semantically_dissimilar_generator(word, SMALL_POOL, frequency=frequency, min_len=min_len, max_len=max_len)
-        for _ in range(word_num):
-            Word_Freq[word]['Dissimilar'].append(next(h))
-
-        # Combine and shuffle
-        words_with_labels = (
-            [(w, "Similar") for w in Word_Freq[word]['Similar']] +
-            [(w, "Dissimilar") for w in Word_Freq[word]['Dissimilar']]
+        texts = [text1, text2, text3]
+        texts = [text for text in texts if text.strip()]  # Remove empty texts
+        
+        if not topic:
+            return "Please provide a topic", 400
+        if not texts:
+            return "Please provide at least one text", 400
+        
+        # Generate knowledge grid
+        words_with_labels = generate_knowledge_grid(
+            topic, texts, 
+            total_words=word_num,
+            frequency=frequency,
+            min_len=min_len,
+            max_len=max_len
         )
-        random.shuffle(words_with_labels)
-
-        df = pd.DataFrame(words_with_labels, columns=["Word", "Key"])
+        
+        # Create DataFrame
+        df = pd.DataFrame(words_with_labels, columns=["Word", "Type"])
         df["Related to Topic"] = " "
         df["Not Related to Topic"] = " "
         df["I don't know"] = " "
@@ -257,7 +350,7 @@ def download_csv():
     csv_bytes = io.BytesIO(session['csv_data'].encode('utf-8-sig'))
     csv_bytes.seek(0)
 
-    filename = f"{session['topic']}_words.csv"
+    filename = f"{session['topic']}_knowledge_grid.csv"
     return send_file(
         csv_bytes,
         mimetype='text/csv',
