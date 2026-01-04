@@ -1,6 +1,6 @@
 Flask==2.3.2
-pandas
-nltk
-wordfreq
-gunicorn
+pandas==2.1.3
+nltk==3.8.1
+wordfreq==3.0.2
 mangum==0.17.0
+gunicorn==21.2.0
