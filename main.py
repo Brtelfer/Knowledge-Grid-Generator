@@ -1,4 +1,7 @@
 import nltk
+import os
+
+nltk.data.path.append('/tmp/nltk_data')
 
 try:
     nltk.data.find("corpora/wordnet")
