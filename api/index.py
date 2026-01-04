@@ -1,79 +1,121 @@
-# api/index.py
+# api/index.py - COMPLETELY NEW VERSION
 from flask import Flask, request, jsonify
 from mangum import Mangum
 import sys
 import os
 import traceback
 
-# ============ CRITICAL: Set NLTK data path ============
-# Vercel serverless has read-only filesystem except /tmp
-import nltk
-nltk.data.path.append('/tmp/nltk_data')
-
-# Create /tmp/nltk_data directory if it doesn't exist
-os.makedirs('/tmp/nltk_data', exist_ok=True)
-
-# Download NLTK data to /tmp (writable location)
-try:
-    nltk.data.find("corpora/wordnet")
-except LookupError:
-    print("Downloading NLTK data to /tmp/nltk_data...")
-    nltk.download('wordnet', download_dir='/tmp/nltk_data', quiet=True)
-    nltk.download('omw-1.4', download_dir='/tmp/nltk_data', quiet=True)
-    nltk.download('punkt', download_dir='/tmp/nltk_data', quiet=True)
-    nltk.download('stopwords', download_dir='/tmp/nltk_data', quiet=True)
-    # Reload the data path
-    nltk.data.path.append('/tmp/nltk_data')
-
-# Add parent directory to path for your modules
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# ============ SKIP NLTK CHECK AT IMPORT TIME ============
+# We'll handle NLTK downloads inside endpoints, not at module level
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-key")
+
+# Store NLTK initialization status
+_NLTK_INITIALIZED = False
+
+def initialize_nltk():
+    """Initialize NLTK data on first request"""
+    global _NLTK_INITIALIZED
+    
+    if _NLTK_INITIALIZED:
+        return True
+    
+    try:
+        import nltk
+        
+        # Set path to /tmp for writable storage
+        nltk_data_dir = '/tmp/nltk_data'
+        nltk.data.path.append(nltk_data_dir)
+        
+        # Create directory
+        os.makedirs(nltk_data_dir, exist_ok=True)
+        
+        # Download required data
+        print(f"Downloading NLTK data to {nltk_data_dir}...")
+        
+        # Download if not already present
+        try:
+            nltk.data.find('corpora/wordnet', paths=[nltk_data_dir])
+        except LookupError:
+            nltk.download('wordnet', download_dir=nltk_data_dir, quiet=True)
+            nltk.download('omw-1.4', download_dir=nltk_data_dir, quiet=True)
+        
+        try:
+            nltk.data.find('tokenizers/punkt', paths=[nltk_data_dir])
+        except LookupError:
+            nltk.download('punkt', download_dir=nltk_data_dir, quiet=True)
+        
+        try:
+            nltk.data.find('corpora/stopwords', paths=[nltk_data_dir])
+        except LookupError:
+            nltk.download('stopwords', download_dir=nltk_data_dir, quiet=True)
+        
+        _NLTK_INITIALIZED = True
+        print("NLTK initialization complete")
+        return True
+        
+    except Exception as e:
+        print(f"NLTK initialization failed: {e}")
+        traceback.print_exc()
+        return False
 
 # ============ SIMPLE TEST ENDPOINTS ============
 
 @app.route('/api/test', methods=['GET'])
 def test():
-    """Simple test endpoint"""
+    """Simple test endpoint - no NLTK required"""
     return jsonify({
         "status": "success",
-        "message": "Flask is working!",
-        "nltk_data_path": nltk.data.path,
-        "wordnet_loaded": nltk.data.find("corpora/wordnet") is not None
+        "message": "Flask API is running",
+        "nltk_initialized": _NLTK_INITIALIZED
     })
 
 @app.route('/api/health', methods=['GET'])
 def health():
-    """Health check with NLTK verification"""
-    try:
-        from nltk.corpus import wordnet as wn
-        wordnet_status = "loaded"
-        sample_word = "test"
-        synsets = wn.synsets(sample_word)
-    except Exception as e:
-        wordnet_status = f"error: {str(e)}"
-        synsets = []
+    """Health check with optional NLTK test"""
+    nltk_status = "not_initialized"
+    if _NLTK_INITIALIZED:
+        try:
+            import nltk
+            from nltk.corpus import wordnet
+            nltk_status = "working"
+        except Exception as e:
+            nltk_status = f"error: {str(e)}"
     
     return jsonify({
         "status": "healthy",
         "service": "Knowledge Grid Generator",
-        "nltk_data": wordnet_status,
-        "available_paths": nltk.data.path,
-        "synsets_for_test": len(synsets)
+        "nltk": nltk_status,
+        "endpoints": {
+            "GET /api/test": "Simple test",
+            "GET /api/health": "Health check",
+            "POST /api/init-nltk": "Initialize NLTK",
+            "POST /api/generate": "Generate grid"
+        }
     })
 
-# ============ LAZY IMPORT OF YOUR MAIN MODULE ============
-# Import only when needed to avoid startup errors
-
-def get_generate_function():
-    """Lazy import to avoid startup issues"""
+@app.route('/api/init-nltk', methods=['GET', 'POST'])
+def init_nltk():
+    """Manually initialize NLTK data"""
     try:
-        from main import generate_knowledge_grid
-        return generate_knowledge_grid
+        success = initialize_nltk()
+        if success:
+            return jsonify({
+                "success": True,
+                "message": "NLTK data initialized in /tmp/nltk_data"
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "message": "NLTK initialization failed"
+            }), 500
     except Exception as e:
-        print(f"Error importing main module: {e}")
-        raise
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }), 500
 
 # ============ MAIN ENDPOINTS ============
 
@@ -81,9 +123,26 @@ def get_generate_function():
 def generate():
     """Generate knowledge grid"""
     try:
-        # Lazy import your function
-        generate_knowledge_grid = get_generate_function()
+        # Initialize NLTK first
+        if not initialize_nltk():
+            return jsonify({
+                "success": False,
+                "error": "Failed to initialize NLTK data"
+            }), 500
         
+        # Now import your module (NLTK should be ready)
+        sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        
+        try:
+            from main import generate_knowledge_grid
+            import pandas as pd
+        except Exception as e:
+            return jsonify({
+                "success": False,
+                "error": f"Failed to import main module: {str(e)}"
+            }), 500
+        
+        # Get request data
         data = request.get_json()
         
         if not data:
@@ -104,21 +163,22 @@ def generate():
             return jsonify({"error": "Texts must be a non-empty list"}), 400
         
         # Filter empty texts
-        texts = [t for t in texts if t and str(t).strip()]
+        texts = [str(t).strip() for t in texts if t and str(t).strip()]
         if not texts:
             return jsonify({"error": "At least one non-empty text is required"}), 400
         
-        # Generate
+        # Generate (with smaller pool for performance)
+        print(f"Generating grid for topic: {topic}")
         words_with_labels = generate_knowledge_grid(
             topic=topic,
             texts=texts,
-            total_words=word_num,
+            total_words=min(word_num, 30),  # Limit for testing
             frequency=frequency,
             min_len=min_len,
             max_len=max_len
         )
         
-        import pandas as pd
+        # Create CSV
         df = pd.DataFrame(words_with_labels, columns=["Word", "Type"])
         df["Related to Topic"] = " "
         df["Not Related to Topic"] = " "
@@ -131,7 +191,7 @@ def generate():
             "topic": topic,
             "grid": words_with_labels,
             "csv_data": csv_data,
-            "dataframe": df.to_dict(orient='records')
+            "count": len(words_with_labels)
         })
         
     except Exception as e:
@@ -151,8 +211,11 @@ def not_found(error):
 def internal_error(error):
     return jsonify({
         "error": "Internal server error",
-        "details": traceback.format_exc() if app.debug else "Contact administrator"
+        "details": traceback.format_exc()
     }), 500
 
 # ============ VERCEL REQUIREMENT ============
 handler = Mangum(app)
+
+# ============ DO NOT RUN FLASK DIRECTLY ============
+# No app.run() here!
