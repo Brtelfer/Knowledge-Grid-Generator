@@ -3,3 +3,4 @@ pandas
 nltk
 wordfreq
 gunicorn
+mangum==0.17.0
