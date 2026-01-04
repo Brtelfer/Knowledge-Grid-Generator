@@ -1,13 +1,12 @@
 import nltk
 import os
 
-nltk.data.path.append('/tmp/nltk_data')
-
 try:
-    nltk.data.find("corpora/wordnet")
-except LookupError:
-    nltk.download("wordnet", quiet=True)
-    nltk.download("omw-1.4", quiet=True)
+    nltk_data_dir = '/tmp/nltk_data'
+    if os.path.exists(nltk_data_dir):
+        nltk.data.path.append(nltk_data_dir)
+except:
+    pass  # If it fails, NLTK will use default paths
 
 try:
     nltk.data.find('tokenizers/punkt')
