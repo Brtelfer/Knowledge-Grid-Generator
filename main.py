@@ -1,14 +1,11 @@
-here is what my main.py looks like:
-"import io
 import nltk
 
 try:
     nltk.data.find("corpora/wordnet")
 except LookupError:
     nltk.download("wordnet", quiet=True)
-    nltk.download("omw-1.4", quiet=True)  # optional, for multilingual/lemma support
+    nltk.download("omw-1.4", quiet=True)
 
-# Download required NLTK data for text processing
 try:
     nltk.data.find('tokenizers/punkt')
 except LookupError:
@@ -19,7 +16,6 @@ try:
 except LookupError:
     nltk.download('stopwords', quiet=True)
 
-# Try to download punkt_tab for improved tokenization
 try:
     nltk.data.find('tokenizers/punkt_tab')
 except LookupError:
@@ -30,30 +26,10 @@ except LookupError:
 
 import sys
 import os
-
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-from flask import Flask, render_template, request, session, send_file
 import pandas as pd
 import random
 import re
 from collections import Counter
-
-"""
-Semantic word generators: similar + dissimilar.
-
-Usage:
-  - semantically_similar_generator(seed_word, frequency='medium', min_len=None, max_len=None)
-  - semantically_dissimilar_generator(seed_word, frequency='medium', min_len=None, max_len=None)
-
-Frequency options: 'high', 'medium', 'low', 'any'
-Length constraints are character counts.
-
-The script prefers to use `wordfreq` for frequency info. If wordfreq is missing, frequency filter will be a no-op and you'll see a warning.
-Requires: nltk (WordNet). If you don't have nltk data for wordnet, run:
-    import nltk; nltk.download('wordnet'); nltk.download('omw-1.4')
-"""
-
 from typing import Generator, Optional, Iterable, List, Tuple
 import warnings
 
@@ -68,7 +44,6 @@ except Exception:
 try:
     import nltk
     from nltk.corpus import wordnet as wn
-    # Use simple tokenization as fallback
     from nltk.tokenize import RegexpTokenizer
     from nltk.corpus import stopwords
 except Exception as e:
@@ -119,7 +94,6 @@ def frequency_filter(word: str, bucket: str) -> bool:
 
 from nltk.corpus import wordnet as wn
 from functools import lru_cache
-import random
 
 # -------------------------------
 # Caching functions
@@ -355,75 +329,3 @@ def generate_knowledge_grid(topic, texts, total_words=20, frequency='high', min_
     random.shuffle(words_with_labels)
     
     return words_with_labels
-
-app = Flask(__name__)
-app.secret_key = "replace_this_with_a_random_string"
-
-@app.route("/", methods=["GET", "POST"])
-def index():
-    df = None
-    topic = None
-
-    if request.method == "POST":
-        # Collect form inputs
-        topic = request.form.get("topic")
-        text1 = request.form.get("text1", "")
-        text2 = request.form.get("text2", "")
-        text3 = request.form.get("text3", "")
-        
-        frequency = request.form.get("frequency", "high")
-        min_len = int(request.form.get("min_len", 3))
-        max_len = int(request.form.get("max_len", 7))
-        word_num = int(request.form.get("word_num", 20))
-        
-        texts = [text1, text2, text3]
-        texts = [text for text in texts if text.strip()]  # Remove empty texts
-        
-        if not topic:
-            return "Please provide a topic", 400
-        if not texts:
-            return "Please provide at least one text", 400
-        
-        # Generate knowledge grid
-        words_with_labels = generate_knowledge_grid(
-            topic, texts, 
-            total_words=word_num,
-            frequency=frequency,
-            min_len=min_len,
-            max_len=max_len
-        )
-        
-        # Create DataFrame
-        df = pd.DataFrame(words_with_labels, columns=["Word", "Type"])
-        df["Related to Topic"] = " "
-        df["Not Related to Topic"] = " "
-        df["I don't know"] = " "
-
-        # Save CSV in session
-        session['csv_data'] = df.to_csv(index=False, encoding='utf-8-sig')
-        session['topic'] = topic
-
-    return render_template(
-        "index.html",
-        table=df.to_html(classes="table table-striped", index=False, header=True) if df is not None else None,
-        topic=topic
-    )
-
-@app.route("/download_csv")
-def download_csv():
-    if 'csv_data' not in session or 'topic' not in session:
-        return "No data to download", 400
-
-    csv_bytes = io.BytesIO(session['csv_data'].encode('utf-8-sig'))
-    csv_bytes.seek(0)
-
-    filename = f"{session['topic']}_knowledge_grid.csv"
-    return send_file(
-        csv_bytes,
-        mimetype='text/csv',
-        as_attachment=True,
-        download_name=filename
-    )
-
-if __name__ == "__main__":
-    app.run(debug=True)"
