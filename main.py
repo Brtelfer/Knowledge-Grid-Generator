@@ -8,24 +8,6 @@ try:
 except:
     pass  # If it fails, NLTK will use default paths
 
-try:
-    nltk.data.find('tokenizers/punkt')
-except LookupError:
-    nltk.download('punkt', quiet=True)
-
-try:
-    nltk.data.find('corpora/stopwords')
-except LookupError:
-    nltk.download('stopwords', quiet=True)
-
-try:
-    nltk.data.find('tokenizers/punkt_tab')
-except LookupError:
-    try:
-        nltk.download('punkt_tab', quiet=True)
-    except:
-        print("punkt_tab not available, using standard tokenizer")
-
 import sys
 import os
 import pandas as pd
@@ -41,15 +23,6 @@ try:
     _HAS_WORDFREQ = True
 except Exception:
     _HAS_WORDFREQ = False
-
-# NLTK WordNet (used for semantics)
-try:
-    import nltk
-    from nltk.corpus import wordnet as wn
-    from nltk.tokenize import RegexpTokenizer
-    from nltk.corpus import stopwords
-except Exception as e:
-    raise ImportError("nltk and wordnet are required. Install nltk and download wordnet (nltk.download('wordnet')).") from e
 
 # If wordfreq present, build candidate pool from top list; else fallback to WordNet lemma names
 POOL_SIZE = 50000
